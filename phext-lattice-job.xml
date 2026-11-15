@@ -1,0 +1,66 @@
+<?xml version='1.1' encoding='UTF-8'?>
+<flow-definition plugin="workflow-job">
+  <actions/>
+  <description>Pilot CI job (Stage 1, local Jenkins): phext-lattice, exo branch, cargo test. No GitHub Actions machinery. SCM polling is used because GitHub webhooks cannot reach this tailnet-only controller.</description>
+  <keepDependencies>false</keepDependencies>
+  <properties>
+    <jenkins.model.BuildDiscarderProperty>
+      <strategy class="hudson.tasks.LogRotator">
+        <daysToKeep>-1</daysToKeep>
+        <numToKeep>20</numToKeep>
+        <artifactDaysToKeep>-1</artifactDaysToKeep>
+        <artifactNumToKeep>20</artifactNumToKeep>
+      </strategy>
+    </jenkins.model.BuildDiscarderProperty>
+    <org.jenkinsci.plugins.workflow.job.properties.PipelineTriggersJobProperty>
+      <triggers>
+        <hudson.triggers.SCMTrigger>
+          <spec>H/5 * * * *</spec>
+          <ignorePostCommitHooks>false</ignorePostCommitHooks>
+        </hudson.triggers.SCMTrigger>
+      </triggers>
+    </org.jenkinsci.plugins.workflow.job.properties.PipelineTriggersJobProperty>
+  </properties>
+  <definition class="org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition" plugin="workflow-cps">
+    <script>pipeline {
+  agent any
+  options {
+    timestamps()
+    timeout(time: 45, unit: &apos;MINUTES&apos;)
+    disableConcurrentBuilds()
+  }
+  environment {
+    RUSTC_WRAPPER = &apos;sccache&apos;
+    SCCACHE_DIR = &apos;/mnt/mirrorborn/shared/sccache&apos;
+    CARGO_TERM_COLOR = &apos;never&apos;
+  }
+  stages {
+    stage(&apos;Checkout exo&apos;) {
+      steps {
+        git branch: &apos;exo&apos;, url: &apos;https://github.com/wbic16/phext-lattice.git&apos;
+        sh &apos;git log -1 --format=&quot;%H %ci %s&quot;&apos;
+      }
+    }
+    stage(&apos;cargo test&apos;) {
+      steps {
+        sh &apos;&apos;&apos;#!/bin/bash
+set -o pipefail
+sccache --start-server 2&gt;/dev/null || true
+cargo test 2&gt;&amp;1 | tee cargo-test-output.log
+&apos;&apos;&apos;
+      }
+    }
+  }
+  post {
+    always {
+      sh &apos;sccache --show-stats 2&gt;/dev/null | head -12 || true&apos;
+      archiveArtifacts artifacts: &apos;cargo-test-output.log&apos;, allowEmptyArchive: true
+    }
+  }
+}
+</script>
+    <sandbox>true</sandbox>
+  </definition>
+  <triggers/>
+  <disabled>false</disabled>
+</flow-definition>
